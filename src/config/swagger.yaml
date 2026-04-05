@@ -1,0 +1,1029 @@
+openapi: 3.0.3
+
+info:
+  title: Finance Dashboard API
+  version: 1.0.0
+  description: |
+    A secure, role-based RESTful API for managing financial records and viewing
+    aggregated analytics. Authentication is handled via JWE (JSON Web Encryption)
+    Bearer tokens. All protected routes enforce Role-Based Access Control (RBAC).
+
+    ## Roles
+    | Role     | Access Level                                      |
+    |----------|---------------------------------------------------|
+    | viewer   | Dashboard read only                               |
+    | analyst  | Dashboard + financial records (read)              |
+    | admin    | Full access — users, records, and dashboard       |
+
+servers:
+  - url: http://localhost:5000/api/v1
+    description: Local development server
+
+tags:
+  - name: Auth
+    description: Registration and login. No authentication required.
+  - name: Users
+    description: User management. Admin role required for all endpoints.
+  - name: Records
+    description: Financial record CRUD. Permission varies by role.
+  - name: Dashboard
+    description: Aggregated financial analytics. Requires dashboard:read permission.
+
+# ─────────────────────────────────────────────
+# Security
+# ─────────────────────────────────────────────
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWE
+      description: >
+        JWE-encrypted token returned on login/register.
+        Include as: `Authorization: Bearer <token>`
+
+  # ─────────────────────────────────────────────
+  # Reusable Schemas
+  # ─────────────────────────────────────────────
+  schemas:
+
+    # ── Auth ──────────────────────────────────
+    RegisterRequest:
+      type: object
+      required: [name, email, password]
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 100
+          example: Jane Doe
+        email:
+          type: string
+          format: email
+          example: jane@example.com
+        password:
+          type: string
+          minLength: 6
+          example: secret123
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          example: jane@example.com
+        password:
+          type: string
+          minLength: 6
+          example: secret123
+
+    AuthResponse:
+      type: object
+      properties:
+        user:
+          $ref: '#/components/schemas/UserPublic'
+        token:
+          type: string
+          description: JWE-encrypted Bearer token (expires in 1 hour)
+          example: eyJhbGciOiJkaXIiLCJlbmMiOiJBMjU2R0NNIn0...
+
+    # ── User ──────────────────────────────────
+    UserPublic:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 64f1a2b3c4d5e6f7a8b9c0d1
+        name:
+          type: string
+          example: Jane Doe
+        email:
+          type: string
+          example: jane@example.com
+        role:
+          $ref: '#/components/schemas/Role'
+
+    UserFull:
+      allOf:
+        - $ref: '#/components/schemas/UserPublic'
+        - type: object
+          properties:
+            isActive:
+              type: boolean
+              example: true
+            createdAt:
+              type: string
+              format: date-time
+              example: 2024-01-15T10:30:00.000Z
+            updatedAt:
+              type: string
+              format: date-time
+              example: 2024-03-20T08:00:00.000Z
+
+    Role:
+      type: string
+      enum: [viewer, analyst, admin]
+      example: analyst
+
+    CreateUserRequest:
+      type: object
+      required: [name, email, password, role]
+      properties:
+        name:
+          type: string
+          minLength: 2
+          example: John Smith
+        email:
+          type: string
+          format: email
+          example: john@example.com
+        password:
+          type: string
+          minLength: 6
+          example: pass1234
+        role:
+          $ref: '#/components/schemas/Role'
+
+    UpdateRoleRequest:
+      type: object
+      required: [role]
+      properties:
+        role:
+          $ref: '#/components/schemas/Role'
+
+    UpdateStatusRequest:
+      type: object
+      required: [isActive]
+      properties:
+        isActive:
+          type: boolean
+          example: false
+
+    PaginatedUsers:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserFull'
+        pagination:
+          $ref: '#/components/schemas/PaginationMeta'
+
+    # ── Record ────────────────────────────────
+    Record:
+      type: object
+      properties:
+        _id:
+          type: string
+          example: 64f1a2b3c4d5e6f7a8b9c0d2
+        userId:
+          type: string
+          example: 64f1a2b3c4d5e6f7a8b9c0d1
+        amount:
+          type: number
+          example: 1500.00
+        type:
+          type: string
+          enum: [income, expense]
+          example: income
+        category:
+          type: string
+          example: Salary
+        date:
+          type: string
+          format: date-time
+          example: 2024-03-01T00:00:00.000Z
+        notes:
+          type: string
+          example: Monthly salary deposit
+        isDeleted:
+          type: boolean
+          example: false
+        createdBy:
+          type: string
+          example: 64f1a2b3c4d5e6f7a8b9c0d1
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateRecordRequest:
+      type: object
+      required: [amount, type, category, date]
+      properties:
+        amount:
+          type: number
+          minimum: 0.01
+          example: 2500.00
+        type:
+          type: string
+          enum: [income, expense]
+          example: income
+        category:
+          type: string
+          example: Freelance
+        date:
+          type: string
+          format: date-time
+          example: 2024-04-01T00:00:00.000Z
+        notes:
+          type: string
+          maxLength: 500
+          example: Project payment received
+
+    UpdateRecordRequest:
+      type: object
+      properties:
+        amount:
+          type: number
+          minimum: 0.01
+          example: 3000.00
+        type:
+          type: string
+          enum: [income, expense]
+        category:
+          type: string
+          example: Consulting
+        date:
+          type: string
+          format: date-time
+        notes:
+          type: string
+          maxLength: 500
+
+    PaginatedRecords:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Record'
+        pagination:
+          $ref: '#/components/schemas/PaginationMeta'
+
+    # ── Dashboard ─────────────────────────────
+    DashboardSummary:
+      type: object
+      properties:
+        totalIncome:
+          type: number
+          example: 12500.00
+        totalExpense:
+          type: number
+          example: 4300.00
+        netBalance:
+          type: number
+          example: 8200.00
+
+    CategoryBreakdown:
+      type: array
+      items:
+        type: object
+        properties:
+          _id:
+            type: string
+            description: Category name
+            example: Salary
+          total:
+            type: number
+            example: 8000.00
+          count:
+            type: integer
+            example: 3
+
+    MonthlyTrend:
+      type: array
+      items:
+        type: object
+        properties:
+          month:
+            type: integer
+            example: 3
+          year:
+            type: integer
+            example: 2024
+          income:
+            type: number
+            example: 5000.00
+          expense:
+            type: number
+            example: 1800.00
+          net:
+            type: number
+            example: 3200.00
+
+    RecentTransactions:
+      type: array
+      items:
+        $ref: '#/components/schemas/Record'
+
+    # ── Pagination ────────────────────────────
+    PaginationMeta:
+      type: object
+      properties:
+        total:
+          type: integer
+          example: 42
+        page:
+          type: integer
+          example: 1
+        limit:
+          type: integer
+          example: 10
+        totalPages:
+          type: integer
+          example: 5
+        hasNextPage:
+          type: boolean
+          example: true
+        hasPrevPage:
+          type: boolean
+          example: false
+
+    # ── Errors ────────────────────────────────
+    ErrorResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: error
+        message:
+          type: string
+          example: Invalid credentials
+
+    ValidationErrorResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: validation_error
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              path:
+                type: array
+                items:
+                  type: string
+                example: [email]
+              message:
+                type: string
+                example: Invalid email address
+
+  # ─────────────────────────────────────────────
+  # Reusable Responses
+  # ─────────────────────────────────────────────
+  responses:
+    Unauthorized:
+      description: Missing or invalid token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            status: error
+            message: Invalid or expired token
+
+    Forbidden:
+      description: Authenticated but insufficient permissions
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            status: error
+            message: Insufficient permissions
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            status: error
+            message: Record not found
+
+    ValidationError:
+      description: Request body or query failed Zod validation
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationErrorResponse'
+
+    InternalError:
+      description: Unexpected server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            status: error
+            message: Internal server error
+
+# ─────────────────────────────────────────────
+# Paths
+# ─────────────────────────────────────────────
+paths:
+
+  # ── Auth ──────────────────────────────────────
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Register a new user
+      description: >
+        Creates a new account with the `viewer` role by default.
+        Returns a JWE token valid for 1 hour.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+            example:
+              name: Jane Doe
+              email: jane@example.com
+              password: secret123
+      responses:
+        '201':
+          description: User registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+              example:
+                user:
+                  id: 64f1a2b3c4d5e6f7a8b9c0d1
+                  name: Jane Doe
+                  email: jane@example.com
+                  role: viewer
+                token: eyJhbGciOiJkaXIiLCJlbmMiOiJBMjU2R0NNIn0...
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '409':
+          description: Email already in use
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                status: error
+                message: Email already in use
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Authenticate and receive a token
+      description: >
+        Validates credentials and returns a JWE token.
+        Returns 401 for invalid credentials or inactive accounts.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            example:
+              email: jane@example.com
+              password: secret123
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+              example:
+                user:
+                  id: 64f1a2b3c4d5e6f7a8b9c0d1
+                  name: Jane Doe
+                  email: jane@example.com
+                  role: viewer
+                token: eyJhbGciOiJkaXIiLCJlbmMiOiJBMjU2R0NNIn0...
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          description: Invalid credentials or inactive account
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                status: error
+                message: Invalid credentials
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  # ── Users ─────────────────────────────────────
+  /users:
+    post:
+      tags: [Users]
+      summary: Create a new user
+      description: >
+        Admin only. Creates a user with an explicitly assigned role.
+        Unlike self-registration, the admin can assign any role at creation time.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserRequest'
+            example:
+              name: John Smith
+              email: john@example.com
+              password: pass1234
+              role: analyst
+      responses:
+        '201':
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserFull'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Email already in use
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    get:
+      tags: [Users]
+      summary: List all users
+      description: >
+        Admin only. Returns a paginated list of users.
+        Supports filtering by role and active status.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+          example: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+          example: 10
+        - name: role
+          in: query
+          schema:
+            $ref: '#/components/schemas/Role'
+        - name: isActive
+          in: query
+          schema:
+            type: string
+            enum: ['true', 'false']
+          example: 'true'
+      responses:
+        '200':
+          description: Paginated user list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedUsers'
+              example:
+                data:
+                  - id: 64f1a2b3c4d5e6f7a8b9c0d1
+                    name: Jane Doe
+                    email: jane@example.com
+                    role: viewer
+                    isActive: true
+                    createdAt: '2024-01-15T10:30:00.000Z'
+                    updatedAt: '2024-01-15T10:30:00.000Z'
+                pagination:
+                  total: 1
+                  page: 1
+                  limit: 10
+                  totalPages: 1
+                  hasNextPage: false
+                  hasPrevPage: false
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /users/{id}/role:
+    patch:
+      tags: [Users]
+      summary: Assign a role to a user
+      description: Admin only. Updates the role of an existing user.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: 64f1a2b3c4d5e6f7a8b9c0d1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateRoleRequest'
+            example:
+              role: analyst
+      responses:
+        '200':
+          description: Role updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserFull'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /users/{id}/status:
+    patch:
+      tags: [Users]
+      summary: Activate or deactivate a user
+      description: >
+        Admin only. Sets the `isActive` flag on a user account.
+        Deactivated users cannot log in.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: 64f1a2b3c4d5e6f7a8b9c0d1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateStatusRequest'
+            example:
+              isActive: false
+      responses:
+        '200':
+          description: Status updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserFull'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  # ── Records ───────────────────────────────────
+  /records:
+    post:
+      tags: [Records]
+      summary: Create a financial record
+      description: >
+        Requires `record:create` permission (admin only).
+        The record is associated with the authenticated user's ID.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRecordRequest'
+            example:
+              amount: 2500.00
+              type: income
+              category: Freelance
+              date: '2024-04-01T00:00:00.000Z'
+              notes: Project payment received
+      responses:
+        '201':
+          description: Record created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Record'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    get:
+      tags: [Records]
+      summary: List financial records
+      description: >
+        Requires `record:read` permission (analyst, admin).
+        Admins see all records; analysts see only their own.
+        Supports filtering by type, category, and date range with pagination.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [income, expense]
+          example: income
+        - name: category
+          in: query
+          schema:
+            type: string
+          example: Salary
+        - name: dateFrom
+          in: query
+          schema:
+            type: string
+            format: date
+          example: '2024-01-01'
+        - name: dateTo
+          in: query
+          schema:
+            type: string
+            format: date
+          example: '2024-12-31'
+      responses:
+        '200':
+          description: Paginated records list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedRecords'
+              example:
+                data:
+                  - _id: 64f1a2b3c4d5e6f7a8b9c0d2
+                    userId: 64f1a2b3c4d5e6f7a8b9c0d1
+                    amount: 2500.00
+                    type: income
+                    category: Freelance
+                    date: '2024-04-01T00:00:00.000Z'
+                    notes: Project payment received
+                    isDeleted: false
+                    createdBy: 64f1a2b3c4d5e6f7a8b9c0d1
+                    createdAt: '2024-04-01T12:00:00.000Z'
+                    updatedAt: '2024-04-01T12:00:00.000Z'
+                pagination:
+                  total: 1
+                  page: 1
+                  limit: 10
+                  totalPages: 1
+                  hasNextPage: false
+                  hasPrevPage: false
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /records/{id}:
+    patch:
+      tags: [Records]
+      summary: Update a financial record
+      description: >
+        Requires `record:update` permission (admin only).
+        All fields are optional — only provided fields are updated.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: 64f1a2b3c4d5e6f7a8b9c0d2
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateRecordRequest'
+            example:
+              amount: 3000.00
+              notes: Updated payment amount
+      responses:
+        '200':
+          description: Record updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Record'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    delete:
+      tags: [Records]
+      summary: Soft-delete a financial record
+      description: >
+        Requires `record:delete` permission (admin only).
+        Records are never permanently removed — `isDeleted` is set to `true`
+        to preserve the audit trail.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: 64f1a2b3c4d5e6f7a8b9c0d2
+      responses:
+        '204':
+          description: Record soft-deleted (no content)
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  # ── Dashboard ─────────────────────────────────
+  /dashboard/summary:
+    get:
+      tags: [Dashboard]
+      summary: Financial summary
+      description: >
+        Returns total income, total expenses, and net balance.
+        Admins see data across all users; viewers and analysts see only their own.
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Summary data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardSummary'
+              example:
+                totalIncome: 12500.00
+                totalExpense: 4300.00
+                netBalance: 8200.00
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /dashboard/category:
+    get:
+      tags: [Dashboard]
+      summary: Breakdown by category
+      description: >
+        Returns total amount and transaction count grouped by category,
+        sorted by total descending.
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Category breakdown
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CategoryBreakdown'
+              example:
+                - _id: Salary
+                  total: 8000.00
+                  count: 2
+                - _id: Freelance
+                  total: 4500.00
+                  count: 3
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /dashboard/monthly:
+    get:
+      tags: [Dashboard]
+      summary: Month-over-month trends
+      description: >
+        Returns income, expense, and net per month.
+        Optionally filter by year. If no year is provided, all records are included.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: year
+          in: query
+          required: false
+          schema:
+            type: integer
+          example: 2024
+      responses:
+        '200':
+          description: Monthly trend data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MonthlyTrend'
+              example:
+                - month: 1
+                  year: 2024
+                  income: 5000.00
+                  expense: 1200.00
+                  net: 3800.00
+                - month: 2
+                  year: 2024
+                  income: 4500.00
+                  expense: 1800.00
+                  net: 2700.00
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /dashboard/recent:
+    get:
+      tags: [Dashboard]
+      summary: Recent transactions
+      description: >
+        Returns the 5 most recent financial records sorted by creation date descending.
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Recent transactions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecentTransactions'
+              example:
+                - _id: 64f1a2b3c4d5e6f7a8b9c0d2
+                  userId: 64f1a2b3c4d5e6f7a8b9c0d1
+                  amount: 2500.00
+                  type: income
+                  category: Freelance
+                  date: '2024-04-01T00:00:00.000Z'
+                  notes: Project payment received
+                  isDeleted: false
+                  createdBy: 64f1a2b3c4d5e6f7a8b9c0d1
+                  createdAt: '2024-04-01T12:00:00.000Z'
+                  updatedAt: '2024-04-01T12:00:00.000Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
